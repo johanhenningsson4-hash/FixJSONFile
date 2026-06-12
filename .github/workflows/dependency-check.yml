@@ -1,0 +1,122 @@
+name: Dependency Check
+
+on:
+  push:
+	branches: [ main, master ]
+	paths:
+	  - '**/packages.config'
+	  - '**/*.csproj'
+  schedule:
+	# Run every Sunday at midnight UTC
+	- cron: '0 0 * * 0'
+  workflow_dispatch:
+
+jobs:
+  check-dependencies:
+	name: Check Dependencies
+	runs-on: windows-latest
+
+	steps:
+	- name: Checkout code
+	  uses: actions/checkout@v4
+
+	- name: Setup NuGet
+	  uses: nuget/setup-nuget@v2
+	  with:
+		nuget-version: 'latest'
+
+	- name: List current packages
+	  run: |
+		Write-Host "============================================"
+		Write-Host "Current NuGet Packages"
+		Write-Host "============================================"
+
+		if (Test-Path "FixJSONFile/packages.config") {
+		  [xml]$packagesConfig = Get-Content "FixJSONFile/packages.config"
+		  $packages = $packagesConfig.packages.package
+
+		  foreach ($package in $packages) {
+			Write-Host "$($package.id) - v$($package.version)"
+		  }
+		}
+		Write-Host "============================================"
+
+	- name: Check for package updates
+	  run: |
+		Write-Host "============================================"
+		Write-Host "Checking for Package Updates"
+		Write-Host "============================================"
+
+		if (Test-Path "FixJSONFile/packages.config") {
+		  [xml]$packagesConfig = Get-Content "FixJSONFile/packages.config"
+		  $packages = $packagesConfig.packages.package
+
+		  foreach ($package in $packages) {
+			Write-Host "Checking $($package.id)..."
+			try {
+			  $latest = nuget list $package.id -PreRelease:$false | Select-String "^$($package.id) " | Select-Object -First 1
+			  if ($latest) {
+				$latestVersion = $latest.ToString().Split(' ')[1]
+				$currentVersion = $package.version
+
+				if ($latestVersion -ne $currentVersion) {
+				  Write-Host "  ⚠️  Update available: $currentVersion -> $latestVersion" -ForegroundColor Yellow
+				} else {
+				  Write-Host "  ✓ Up to date: $currentVersion" -ForegroundColor Green
+				}
+			  }
+			} catch {
+			  Write-Host "  ℹ️  Could not check: $($package.id)" -ForegroundColor Gray
+			}
+		  }
+		}
+		Write-Host "============================================"
+
+	- name: Check for known vulnerabilities
+	  run: |
+		Write-Host "============================================"
+		Write-Host "Vulnerability Check"
+		Write-Host "============================================"
+		Write-Host "Note: For production use, consider integrating:"
+		Write-Host "  - OWASP Dependency-Check"
+		Write-Host "  - Snyk"
+		Write-Host "  - GitHub Dependabot"
+		Write-Host "============================================"
+	  continue-on-error: true
+
+	- name: Create dependency report
+	  if: always()
+	  run: |
+		$report = @"
+		# Dependency Report
+
+		**Date:** $(Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC")
+		**Repository:** ${{ github.repository }}
+		**Branch:** ${{ github.ref_name }}
+
+		## Packages
+
+		"@
+
+		if (Test-Path "FixJSONFile/packages.config") {
+		  [xml]$packagesConfig = Get-Content "FixJSONFile/packages.config"
+		  $packages = $packagesConfig.packages.package
+
+		  $report += "| Package | Version | Target Framework |`n"
+		  $report += "|---------|---------|------------------|`n"
+
+		  foreach ($package in $packages) {
+			$report += "| $($package.id) | $($package.version) | $($package.targetFramework) |`n"
+		  }
+		}
+
+		$report | Out-File -FilePath "dependency-report.md" -Encoding utf8
+		Write-Host "Dependency report created"
+
+	- name: Upload dependency report
+	  uses: actions/upload-artifact@v4
+	  if: always()
+	  with:
+		name: dependency-report-${{ github.sha }}
+		path: dependency-report.md
+		retention-days: 30

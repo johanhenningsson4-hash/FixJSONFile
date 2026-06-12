@@ -1,0 +1,115 @@
+name: Code Quality
+
+on:
+  push:
+	branches: [ main, master, develop ]
+  pull_request:
+	branches: [ main, master, develop ]
+  schedule:
+	# Run every Monday at 9 AM UTC
+	- cron: '0 9 * * 1'
+  workflow_dispatch:
+
+env:
+  SOLUTION_FILE: FixJSONFile.sln
+  BUILD_CONFIGURATION: Debug
+
+jobs:
+  analyze:
+	name: Code Analysis
+	runs-on: windows-latest
+
+	steps:
+	- name: Checkout code
+	  uses: actions/checkout@v4
+	  with:
+		fetch-depth: 0
+
+	- name: Setup MSBuild
+	  uses: microsoft/setup-msbuild@v2
+	  with:
+		vs-version: '[17.0,18.0)'
+
+	- name: Setup NuGet
+	  uses: nuget/setup-nuget@v2
+	  with:
+		nuget-version: 'latest'
+
+	- name: Restore NuGet packages
+	  run: nuget restore $env:SOLUTION_FILE
+
+	- name: Build with Code Analysis
+	  run: |
+		msbuild $env:SOLUTION_FILE `
+		  /p:Configuration=$env:BUILD_CONFIGURATION `
+		  /p:Platform="Any CPU" `
+		  /p:RunCodeAnalysis=true `
+		  /p:CodeAnalysisRuleSet="MinimumRecommendedRules.ruleset" `
+		  /m `
+		  /v:normal
+
+	- name: Count code metrics
+	  run: |
+		Write-Host "============================================"
+		Write-Host "Code Metrics"
+		Write-Host "============================================"
+
+		# Count lines of code
+		$csFiles = Get-ChildItem -Path "FixJSONFile" -Recurse -Include "*.cs" -Exclude "*Designer.cs","*AssemblyInfo.cs"
+		$totalLines = 0
+		$totalFiles = 0
+
+		foreach ($file in $csFiles) {
+		  $lines = (Get-Content $file.FullName).Count
+		  $totalLines += $lines
+		  $totalFiles++
+		}
+
+		Write-Host "Total C# files: $totalFiles"
+		Write-Host "Total lines of code: $totalLines"
+		Write-Host "Average lines per file: $([math]::Round($totalLines / $totalFiles, 2))"
+		Write-Host "============================================"
+
+	- name: Check for TODO/FIXME comments
+	  run: |
+		Write-Host "============================================"
+		Write-Host "TODO/FIXME Analysis"
+		Write-Host "============================================"
+
+		$csFiles = Get-ChildItem -Path "FixJSONFile" -Recurse -Include "*.cs"
+		$todos = @()
+		$fixmes = @()
+
+		foreach ($file in $csFiles) {
+		  $content = Get-Content $file.FullName
+		  $lineNum = 0
+		  foreach ($line in $content) {
+			$lineNum++
+			if ($line -match "TODO") {
+			  $todos += "$($file.Name):$lineNum - $line"
+			}
+			if ($line -match "FIXME") {
+			  $fixmes += "$($file.Name):$lineNum - $line"
+			}
+		  }
+		}
+
+		Write-Host "TODO comments: $($todos.Count)"
+		if ($todos.Count -gt 0) {
+		  $todos | ForEach-Object { Write-Host "  $_" }
+		}
+
+		Write-Host "FIXME comments: $($fixmes.Count)"
+		if ($fixmes.Count -gt 0) {
+		  $fixmes | ForEach-Object { Write-Host "  $_" }
+		}
+		Write-Host "============================================"
+
+	- name: Summary
+	  if: always()
+	  run: |
+		Write-Host "============================================"
+		Write-Host "Code Quality Check Complete"
+		Write-Host "============================================"
+		Write-Host "Status: ${{ job.status }}"
+		Write-Host "============================================"
