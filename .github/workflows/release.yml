@@ -1,15 +1,15 @@
-name: Release
+﻿name: Release
 
 on:
   push:
-	tags:
-	  - 'v*.*.*'
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
-	inputs:
-	  version:
-		description: 'Release version (e.g., 2.0.0)'
-		required: true
-		type: string
+    inputs:
+      version:
+        description: 'Release version (e.g., 2.0.0)'
+        required: true
+        type: string
 
 env:
   SOLUTION_FILE: FixJSONFile.sln
@@ -19,130 +19,125 @@ env:
 
 jobs:
   release:
-	name: Create Release
-	runs-on: windows-latest
-	permissions:
-	  contents: write
+    name: Create Release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Determine version
+      id: version
+      run: |
+        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+          $version = "${{ inputs.version }}"
+        } else {
+          $version = "${{ github.ref_name }}".TrimStart('v')
+        }
+        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+        echo "Release version: $version"
+    
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      with:
+        vs-version: '[17.0,18.0)'
+    
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v2
+      with:
+        nuget-version: 'latest'
+    
+    - name: Restore NuGet packages
+      run: nuget restore $env:SOLUTION_FILE
+    
+    - name: Build Release
+      run: |
+        msbuild $env:SOLUTION_FILE `
+          /p:Configuration=$env:BUILD_CONFIGURATION `
+          /p:Platform="${env:BUILD_PLATFORM}" `
+          /p:DebugSymbols=false `
+          /p:DebugType=none `
+          /p:Optimize=true `
+          /m `
+          /v:minimal `
+          /nr:false
+    
+    - name: Create release package
+      run: |
+        $releaseDir = "release"
+        $zipName = "$env:PROJECT_NAME-v${{ steps.version.outputs.VERSION }}-win-x64.zip"
+        
+        New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+        
+        Copy-Item "FixJSONFile/bin/$env:BUILD_CONFIGURATION/*.exe" $releaseDir -Force
+        Copy-Item "FixJSONFile/bin/$env:BUILD_CONFIGURATION/*.dll" $releaseDir -Force
+        Copy-Item "FixJSONFile/bin/$env:BUILD_CONFIGURATION/*.config" $releaseDir -Force
+        
+        if (Test-Path "README.md") {
+          Copy-Item "README.md" $releaseDir -Force
+        }
+        
+        Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipName -Force
+        
+        echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+        
+        Write-Host "Created release package: $zipName"
+        Write-Host "Package contents:"
+        Get-ChildItem $releaseDir | ForEach-Object { Write-Host "  - $($_.Name)" }
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        $changelog = @"
+## What's Changed
 
-	steps:
-	- name: Checkout code
-	  uses: actions/checkout@v4
-	  with:
-		fetch-depth: 0
+### Features
+- JSON file fixing and repair utility
+- Browse buttons for easy file selection
+- Input validation and error handling
+- Real-time status updates with progress indication
+- Comprehensive error messages
+- Debug output for troubleshooting
 
-	- name: Determine version
-	  id: version
-	  run: |
-		if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-		  $version = "${{ inputs.version }}"
-		} else {
-		  $version = "${{ github.ref_name }}".TrimStart('v')
-		}
-		echo "VERSION=$version" >> $env:GITHUB_OUTPUT
-		echo "Release version: $version"
+### Technical Details
+- Target Framework: .NET Framework 4.7.2
+- Platform: Windows
+- Architecture: x64
 
-	- name: Setup MSBuild
-	  uses: microsoft/setup-msbuild@v2
-	  with:
-		vs-version: '[17.0,18.0)'
+### Installation
+1. Download the ZIP file
+2. Extract to a folder
+3. Run FixJSONFile.exe
 
-	- name: Setup NuGet
-	  uses: nuget/setup-nuget@v2
-	  with:
-		nuget-version: 'latest'
-
-	- name: Restore NuGet packages
-	  run: nuget restore $env:SOLUTION_FILE
-
-	- name: Build Release
-	  run: |
-		msbuild $env:SOLUTION_FILE `
-		  /p:Configuration=$env:BUILD_CONFIGURATION `
-		  /p:Platform="${env:BUILD_PLATFORM}" `
-		  /p:DebugSymbols=false `
-		  /p:DebugType=none `
-		  /p:Optimize=true `
-		  /m `
-		  /v:minimal `
-		  /nr:false
-
-	- name: Create release package
-	  run: |
-		$releaseDir = "release"
-		$zipName = "$env:PROJECT_NAME-v${{ steps.version.outputs.VERSION }}-win-x64.zip"
-
-		# Create release directory
-		New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
-
-		# Copy binaries
-		Copy-Item "FixJSONFile/bin/$env:BUILD_CONFIGURATION/*.exe" $releaseDir -Force
-		Copy-Item "FixJSONFile/bin/$env:BUILD_CONFIGURATION/*.dll" $releaseDir -Force
-		Copy-Item "FixJSONFile/bin/$env:BUILD_CONFIGURATION/*.config" $releaseDir -Force
-
-		# Copy documentation
-		if (Test-Path "README.md") {
-		  Copy-Item "README.md" $releaseDir -Force
-		}
-
-		# Create zip archive
-		Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipName -Force
-
-		# Store zip name for later steps
-		echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
-
-		Write-Host "Created release package: $zipName"
-		Write-Host "Package contents:"
-		Get-ChildItem $releaseDir | ForEach-Object { Write-Host "  - $($_.Name)" }
-
-	- name: Generate changelog
-	  id: changelog
-	  run: |
-		$changelog = @"
-		## What's Changed
-
-		### Features
-		- JSON file fixing and repair utility
-		- Browse buttons for easy file selection
-		- Input validation and error handling
-		- Real-time status updates with progress indication
-		- Comprehensive error messages
-		- Debug output for troubleshooting
-
-		### Technical Details
-		- Target Framework: .NET Framework 4.7.2
-		- Platform: Windows
-		- Architecture: x64
-
-		### Installation
-		1. Download the ZIP file
-		2. Extract to a folder
-		3. Run FixJSONFile.exe
-
-		**Full Changelog**: https://github.com/${{ github.repository }}/commits/v${{ steps.version.outputs.VERSION }}
-		"@
-
-		$changelog | Out-File -FilePath "CHANGELOG.md" -Encoding utf8
-		echo "CHANGELOG<<EOF" >> $env:GITHUB_OUTPUT
-		echo $changelog >> $env:GITHUB_OUTPUT
-		echo "EOF" >> $env:GITHUB_OUTPUT
-
-	- name: Create GitHub Release
-	  uses: softprops/action-gh-release@v1
-	  with:
-		tag_name: v${{ steps.version.outputs.VERSION }}
-		name: Release v${{ steps.version.outputs.VERSION }}
-		body: ${{ steps.changelog.outputs.CHANGELOG }}
-		draft: false
-		prerelease: false
-		files: |
-		  ${{ env.ZIP_NAME }}
-		generate_release_notes: true
-	  env:
-		GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-	- name: Upload release artifact
-	  uses: actions/upload-artifact@v4
-	  with:
-		name: Release-v${{ steps.version.outputs.VERSION }}
-		path: ${{ env.ZIP_NAME }}
-		retention-days: 90
+**Full Changelog**: https://github.com/${{ github.repository }}/commits/v${{ steps.version.outputs.VERSION }}
+"@
+        
+        $changelog | Out-File -FilePath "CHANGELOG.md" -Encoding utf8
+        echo "CHANGELOG<<EOF" >> $env:GITHUB_OUTPUT
+        echo $changelog >> $env:GITHUB_OUTPUT
+        echo "EOF" >> $env:GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ steps.version.outputs.VERSION }}
+        name: Release v${{ steps.version.outputs.VERSION }}
+        body: ${{ steps.changelog.outputs.CHANGELOG }}
+        draft: false
+        prerelease: false
+        files: |
+          ${{ env.ZIP_NAME }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload release artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Release-v${{ steps.version.outputs.VERSION }}
+        path: ${{ env.ZIP_NAME }}
+        retention-days: 90

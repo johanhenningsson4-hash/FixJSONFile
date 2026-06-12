@@ -1,10 +1,10 @@
-name: Build and Test
+﻿name: Build and Test
 
 on:
   push:
-	branches: [ main, master, develop ]
+    branches: [ main, master, develop ]
   pull_request:
-	branches: [ main, master, develop ]
+    branches: [ main, master, develop ]
   workflow_dispatch:
 
 env:
@@ -14,80 +14,78 @@ env:
 
 jobs:
   build:
-	name: Build and Test
-	runs-on: windows-latest
-
-	steps:
-	- name: Checkout code
-	  uses: actions/checkout@v4
-	  with:
-		fetch-depth: 0
-
-	- name: Setup MSBuild
-	  uses: microsoft/setup-msbuild@v2
-	  with:
-		vs-version: '[17.0,18.0)'
-
-	- name: Setup NuGet
-	  uses: nuget/setup-nuget@v2
-	  with:
-		nuget-version: 'latest'
-
-	- name: Display environment info
-	  run: |
-		echo "Solution: $env:SOLUTION_FILE"
-		echo "Configuration: $env:BUILD_CONFIGURATION"
-		echo "Platform: $env:BUILD_PLATFORM"
-		msbuild -version
-		nuget help | Select-String "NuGet Version"
-
-	- name: Restore NuGet packages
-	  run: nuget restore $env:SOLUTION_FILE
-
-	- name: Build solution
-	  run: |
-		msbuild $env:SOLUTION_FILE `
-		  /p:Configuration=$env:BUILD_CONFIGURATION `
-		  /p:Platform="${env:BUILD_PLATFORM}" `
-		  /p:DebugSymbols=true `
-		  /p:DebugType=embedded `
-		  /m `
-		  /v:minimal `
-		  /nr:false
-
-	- name: Run tests (if any)
-	  run: |
-		$testDlls = Get-ChildItem -Path "." -Recurse -Include "*Tests.dll","*Test.dll" | Where-Object { $_.FullName -match "\\bin\\$env:BUILD_CONFIGURATION\\" }
-		if ($testDlls.Count -gt 0) {
-		  Write-Host "Found test assemblies:"
-		  $testDlls | ForEach-Object { Write-Host "  - $($_.FullName)" }
-		  # Add test runner command here when tests are added
-		  # Example: vstest.console.exe $testDlls /Logger:trx
-		} else {
-		  Write-Host "No test assemblies found - skipping tests"
-		}
-	  continue-on-error: true
-
-	- name: Upload build artifacts
-	  uses: actions/upload-artifact@v4
-	  with:
-		name: FixJSONFile-${{ github.sha }}
-		path: |
-		  FixJSONFile/bin/${{ env.BUILD_CONFIGURATION }}/*.exe
-		  FixJSONFile/bin/${{ env.BUILD_CONFIGURATION }}/*.dll
-		  FixJSONFile/bin/${{ env.BUILD_CONFIGURATION }}/*.config
-		  !FixJSONFile/bin/${{ env.BUILD_CONFIGURATION }}/*.vshost.*
-		retention-days: 30
-		if-no-files-found: error
-
-	- name: Build status summary
-	  if: always()
-	  run: |
-		Write-Host "============================================"
-		Write-Host "Build Summary"
-		Write-Host "============================================"
-		Write-Host "Repository: ${{ github.repository }}"
-		Write-Host "Branch: ${{ github.ref_name }}"
-		Write-Host "Commit: ${{ github.sha }}"
-		Write-Host "Status: ${{ job.status }}"
-		Write-Host "============================================"
+    name: Build and Test
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      with:
+        vs-version: '[17.0,18.0)'
+    
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v2
+      with:
+        nuget-version: 'latest'
+    
+    - name: Display environment info
+      run: |
+        echo "Solution: $env:SOLUTION_FILE"
+        echo "Configuration: $env:BUILD_CONFIGURATION"
+        echo "Platform: $env:BUILD_PLATFORM"
+        msbuild -version
+        nuget help | Select-String "NuGet Version"
+    
+    - name: Restore NuGet packages
+      run: nuget restore $env:SOLUTION_FILE
+    
+    - name: Build solution
+      run: |
+        msbuild $env:SOLUTION_FILE `
+          /p:Configuration=$env:BUILD_CONFIGURATION `
+          /p:Platform="${env:BUILD_PLATFORM}" `
+          /p:DebugSymbols=true `
+          /p:DebugType=embedded `
+          /m `
+          /v:minimal `
+          /nr:false
+    
+    - name: Run tests (if any)
+      run: |
+        $testDlls = Get-ChildItem -Path "." -Recurse -Include "*Tests.dll","*Test.dll" | Where-Object { $_.FullName -match "\\bin\\$env:BUILD_CONFIGURATION\\" }
+        if ($testDlls.Count -gt 0) {
+          Write-Host "Found test assemblies:"
+          $testDlls | ForEach-Object { Write-Host "  - $($_.FullName)" }
+        } else {
+          Write-Host "No test assemblies found - skipping tests"
+        }
+      continue-on-error: true
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: FixJSONFile-${{ github.sha }}
+        path: |
+          FixJSONFile/bin/${{ env.BUILD_CONFIGURATION }}/*.exe
+          FixJSONFile/bin/${{ env.BUILD_CONFIGURATION }}/*.dll
+          FixJSONFile/bin/${{ env.BUILD_CONFIGURATION }}/*.config
+          !FixJSONFile/bin/${{ env.BUILD_CONFIGURATION }}/*.vshost.*
+        retention-days: 30
+        if-no-files-found: error
+    
+    - name: Build status summary
+      if: always()
+      run: |
+        Write-Host "============================================"
+        Write-Host "Build Summary"
+        Write-Host "============================================"
+        Write-Host "Repository: ${{ github.repository }}"
+        Write-Host "Branch: ${{ github.ref_name }}"
+        Write-Host "Commit: ${{ github.sha }}"
+        Write-Host "Status: ${{ job.status }}"
+        Write-Host "============================================"
